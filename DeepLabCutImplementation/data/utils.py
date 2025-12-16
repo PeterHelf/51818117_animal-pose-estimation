@@ -603,9 +603,6 @@ def make_multianimal_labeled_image(
     pcutoff: float = 0.6,
     labels: list = ["+", ".", "x"],
     ax: plt.Axes | None = None,
-    bounding_boxes: tuple[np.ndarray, np.ndarray] | None = None,
-    bboxes_cutoff: float = 0.6,
-    bboxes_color: Colormap | str | None = None,
 ) -> plt.Axes:
     """
     Plots groundtruth labels and predictions onto the matplotlib's axes, with the specified graphical parameters.
@@ -621,12 +618,6 @@ def make_multianimal_labeled_image(
         pcutoff: cut-off confidence value
         labels: labels to use for ground truth, reliable predictions, and not reliable predictions (confidence below cut-off value)
         ax: matplotlib plot's axes object
-        bounding_boxes: bounding boxes (top-left corner, size) and their respective confidence levels,
-        bboxes_cutoff: bounding boxes confidence cutoff threshold.
-        bboxes_color: color(s) for the bounding boxes.
-            If Colormap is passed -> each bounding box will be colored into its own color from the colormap.
-            If string is passed -> all bboxes will be of string's defined color.
-            If None -> all bboxes will be colored into a default color.
 
     Returns:
         matplotlib Axes object with plotted labels and predictions.
@@ -637,38 +628,16 @@ def make_multianimal_labeled_image(
         _, ax = prepare_figure_axes(w, h)
     ax.imshow(frame, "gray")
 
-    if bounding_boxes is not None:
-        for i, (bbox, bbox_score) in enumerate(
-            zip(bounding_boxes[0], bounding_boxes[1])
-        ):
-            bbox_origin = (bbox[0], bbox[1])
-            (bbox_width, bbox_height) = (bbox[2], bbox[3])
-            if isinstance(bboxes_color, Colormap):
-                bbox_color = bboxes_color(i)
-            elif bboxes_color is None:
-                bbox_color = "red"
-            else:
-                bbox_color = bboxes_color
-            rectangle = patches.Rectangle(
-                bbox_origin,
-                bbox_width,
-                bbox_height,
-                linewidth=1,
-                edgecolor=bbox_color,
-                facecolor="none",
-                linestyle="--" if bbox_score < bboxes_cutoff else "-",
-            )
-            ax.add_patch(rectangle)
-
     for n, data in enumerate(zip(coords_truth, coords_pred, probs_pred)):
         color = colors(n)
         coord_gt, coord_pred, prob_pred = data
 
-        ax.plot(*coord_gt.T, labels[0], ms=dotsize, alpha=alphavalue, color=color)
-        if not coord_pred.shape[0]:
-            continue
+        for i, coord in enumerate(coord_pred):
+            if prob_pred[i] > pcutoff:
+                plt.text(coord[0]-4, coord[1]+4, str(i+1), color="red", fontsize=5)
 
         reliable = np.repeat(prob_pred >= pcutoff, coord_pred.shape[1], axis=1)
+        
         ax.plot(
             *coord_pred[reliable[:, 0]].T,
             labels[1],
@@ -676,12 +645,5 @@ def make_multianimal_labeled_image(
             alpha=alphavalue,
             color=color,
         )
-        if not np.all(reliable):
-            ax.plot(
-                *coord_pred[~reliable[:, 0]].T,
-                labels[2],
-                ms=dotsize,
-                alpha=alphavalue,
-                color=color,
-            )
+        
     return ax
