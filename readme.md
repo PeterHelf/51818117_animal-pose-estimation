@@ -3,22 +3,25 @@
 The aim of this project was the implementation of the [BUCTD](https://openaccess.thecvf.com/content/ICCV2023/papers/Zhou_Rethinking_Pose_Estimation_in_Crowds_Overcoming_the_Detection_Information_Bottleneck_ICCV_2023_paper.pdf) model and the testing of it on the [AP-10k](https://openreview.net/forum?id=rH8yliN6C83) animal pose dataset.
 
 ## Intallation
+Install the necessary python packages with the requirements.txt file.
 
-### Dataset
+The checkpoint for the best performing model can be found in the release section on github. The file needs to be placed in the root directory of the project.
+
+## Dataset
 The dataset is publicly available under this link: https://drive.google.com/file/d/1-FNNGcdtAQRehYYkGY1y4wzFNg4iWNad/view?usp=sharing
 
 The file needs to be palced in the dataset folder of this project and unzipped. The folder structure should look like this:
-
 
 ```text
 51818117_animal-pose-estimation
 ├── DeepLabCutImplementation
 ├── Wrappers
-├── training_logs
+├── result_images
 ├── training.ipynb
 ├── inference.ipynb
-├── hyperparamter_tuning.ipynb
+├── hyperparameter_tuning.ipynb
 ├── requirements.txt
+├── snapshot-best.pt
 |── dataset
     │── ap10k
         │-- annotations
@@ -41,7 +44,7 @@ The mAP metric was chosen for the task.
 
 mAP Target: >80 (State of the art ViTPose++ achieves mAP of 82.4)
 
-mAP achieved by BUCTD in this project: __
+mAP achieved by BUCTD in this project: 75.1
 
 Planned timebudget: 35 hours | Actual time required: 48 hours
 
@@ -71,7 +74,7 @@ The nine model architectures were then trained for a limited number of 10 epochs
 
 ### Final training and testing of the model | Timebudget: Not specified in project proposal | Actual required time: 3 hours
 
-The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of __. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
+The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of 75.1. This does not quiet meet the hoped mAP of >80, but is still an impressive performance when looking at the result images. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
 
 !["Keypoint definition"](/result_images/keypointDef.jpg "Keypoint definition")
 
