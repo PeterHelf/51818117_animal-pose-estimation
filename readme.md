@@ -74,7 +74,7 @@ The nine model architectures were then trained for a limited number of 10 epochs
 
 ### Final training and testing of the model | Timebudget: Not specified in project proposal | Actual required time: 3 hours
 
-The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of 75.1. This does not quiet meet the hoped mAP of >80, but is still an impressive performance when looking at the result images. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
+The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of 75.1. This does not quiet meet the hoped mAP of >80, but is still an impressive performance when looking at the result images. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images were labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
 
 !["Keypoint definition"](/result_images/keypointDef.jpg "Keypoint definition")
 
@@ -87,3 +87,4 @@ The best performing model architecture identifed in the previous step was traini
 !["Keypoint detection result 4"](/result_images/result4.png "Result 4")
 
 !["Keypoint detection result 5"](/result_images/result5.png "Result 5")
+
