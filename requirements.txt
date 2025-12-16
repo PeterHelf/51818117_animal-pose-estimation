@@ -1,0 +1,14 @@
+python==3.12
+
+#torch with cuda support
+--index-url https://download.pytorch.org/whl/cu128
+torch==2.9.1+cu128
+torchvision==0.24.1+cu128
+
+# Deeplabcut requirements
+timm==1.0.22
+albumentations<=1.4.3
+pycocotools<=2.0.8
+matplotlib>=3.3, <3.8.4
+numpy>=1.18.5,<2.0.0
+pandas>=1.0.1,!=1.5.0
