@@ -248,6 +248,8 @@ class TrainingRunner(Runner, Generic[ModelType], metaclass=ABCMeta):
         loader: torch.utils.data.DataLoader,
         mode: str = "train",
         display_iters: int = 500,
+        log_to_file: bool = True,
+        log_to_console: bool = False,
     ) -> float:
         """Facilitates training over an epoch. Returns the loss over the batches.
 
@@ -315,9 +317,14 @@ class TrainingRunner(Runner, Generic[ModelType], metaclass=ABCMeta):
             self._metadata["losses"][name] = val
             metrics_to_log[f"losses/{name}"] = val
 
-        self.csv_logger.log(metrics_to_log, step=self.current_epoch)
-        if self.logger:
-            self.logger.log(metrics_to_log, step=self.current_epoch)
+        if log_to_file:
+            self.csv_logger.log(metrics_to_log, step=self.current_epoch)
+            if self.logger:
+                self.logger.log(metrics_to_log, step=self.current_epoch)
+        if perf_metrics and log_to_console:
+            line_length = max([len(name) for name in perf_metrics.keys()]) + 2
+            for name, score in perf_metrics.items():
+                logging.info(f"  {(name + ':').ljust(line_length)}{score:6.2f}")
 
         return epoch_loss
 

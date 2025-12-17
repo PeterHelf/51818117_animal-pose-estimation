@@ -44,7 +44,7 @@ The mAP metric was chosen for the task.
 
 mAP Target: >80 (State of the art ViTPose++ achieves mAP of 82.4)
 
-mAP achieved by BUCTD in this project: 76.6
+mAP achieved by BUCTD in this project: 76.1
 
 Planned timebudget: 35 hours | Actual time required: 48 hours
 
@@ -74,7 +74,7 @@ The nine model architectures were then trained for a limited number of 10 epochs
 
 ### Final training and testing of the model | Timebudget: Not specified in project proposal | Actual required time: 3 hours
 
-The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of 76.6. This does not quiet meet the hoped mAP of >80, but is still an impressive performance when looking at the result images. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images were labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
+The best performing model architecture identifed in the previous step was trainined for a longer period of 50 epochs to achieve better results. The model was then tested on the test set of the AP-10k dataset achieving a mAP of 76.1. This does not quiet meet the hoped mAP of >80, but is still an impressive performance when looking at the result images. Visualizations were created on images of the testset to illustrate the performance. The first image is the reference image provided by the AP-10k dataset to visualize the keypoints. The remaining images were labelled with the BUCTD model. The model does not work on images with more than one animal as it only detects each keypoint once.
 
 !["Keypoint definition"](/result_images/keypointDef.jpg "Keypoint definition")
 
