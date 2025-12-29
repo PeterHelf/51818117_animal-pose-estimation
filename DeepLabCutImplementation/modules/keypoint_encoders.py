@@ -17,7 +17,7 @@ import torch
 import torchvision.transforms.functional as TF
 import matplotlib.pyplot as plt
 
-def out_of_bounds_keypoints(keypoints: np.ndarray, shape: tuple) -> np.ndarray:
+def out_of_bounds_keypoints(keypoints: torch.Tensor, shape: tuple) -> np.ndarray:
     """Computes which visible keypoints are outside an image
 
     Args:
@@ -32,8 +32,8 @@ def out_of_bounds_keypoints(keypoints: np.ndarray, shape: tuple) -> np.ndarray:
         were kicked off an image due to augmentation.
     """
     return (keypoints[..., 2] > 0) & (
-        np.isnan(keypoints[..., 0])
-        | np.isnan(keypoints[..., 1])
+        torch.isnan(keypoints[..., 0])
+        | torch.isnan(keypoints[..., 1])
         | (keypoints[..., 0] < 0)
         | (keypoints[..., 0] > shape[1])
         | (keypoints[..., 1] < 0)
@@ -79,7 +79,7 @@ class BaseKeypointEncoder(ABC):
         """
         raise NotImplementedError
 
-    def blur_heatmap(self, heatmap: np.ndarray) -> np.ndarray:
+    def blur_heatmap(self, heatmap: torch.Tensor) -> torch.Tensor:
         """Applies a Gaussian blur to a heatmap
 
         Taken from BUCTD/data/JointsDataset, generate_heatmap
@@ -90,11 +90,11 @@ class BaseKeypointEncoder(ABC):
         Returns:
             The heatmap with a Gaussian blur, such that max(heatmap) = 255
         """
-        heatmap = cv2.GaussianBlur(heatmap, self.kernel_size, sigmaX=0)
-        am = np.amax(heatmap)
-        if am == 0:
-            return heatmap
-        heatmap /= am / 255
+        heatmap = TF.gaussian_blur(heatmap, self.kernel_size, sigma=None)
+        #am = torch.max(heatmap)
+        #if am == 0:
+        #    return heatmap
+        #heatmap /= am / 255
         return heatmap
 
     # def blur_heatmap_batch(self, heatmaps: torch.tensor) -> np.ndarray:
@@ -131,30 +131,39 @@ class StackedKeypointEncoder(BaseKeypointEncoder):
 
         batch_size, _, _ = keypoints.shape
 
-        kpts = keypoints.copy()
+        kpts = keypoints.clone()
         kpts[keypoints[..., 2] <= 0] = 0
 
         # Mark keypoints as visible, remove NaNs
         kpts[kpts[..., 2] > 0, 2] = 2
-        kpts = np.nan_to_num(kpts)
+        kpts = torch.nan_to_num(kpts)
 
-        oob_mask = out_of_bounds_keypoints(kpts, self.img_size)
-        if np.sum(oob_mask) > 0:
-            kpts[oob_mask] = 0
-        kpts = kpts.astype(int)
+        #oob_mask = out_of_bounds_keypoints(kpts, self.img_size)
+        #oob_mask_sum = torch.sum(oob_mask)
+        #if torch.gt(oob_mask_sum, torch.tensor(0)):#oob_mask_sum > 0:
+        #    kpts[oob_mask] = 0
+        kpts = kpts.type(torch.int)
 
-        zero_matrix = np.zeros((batch_size, size[0], size[1], self.num_channels))
+        zero_matrix = torch.zeros((batch_size, size[0], size[1], self.num_channels))
 
         def _get_condition_matrix(zero_matrix, kpts):
+            j = torch.tensor(0)
             for i, pose in enumerate(kpts):
                 x, y, vis = pose.T
                 mask = vis > 0
                 x_masked, y_masked, joint_inds_masked = (
                     x[mask],
                     y[mask],
-                    np.arange(self.num_joints)[mask],
+                    torch.arange(self.num_joints, dtype=torch.int64)[mask],
                 )
-                zero_matrix[i, y_masked - 1, x_masked - 1, joint_inds_masked] = 255
+                print(j.dtype)
+                print((y_masked - 1).dtype)
+                print(( x_masked - 1).dtype)
+                print(joint_inds_masked.dtype)
+                index = [j, (y_masked - 1).type(torch.int64), (x_masked - 1).type(torch.int64), joint_inds_masked]
+                torch.index_put_(zero_matrix, index, torch.tensor(255.0))
+                #zero_matrix[torch.tensor(i), y_masked - 1, x_masked - 1, joint_inds_masked] = torch.tensor(255.0)
+                j += torch.tensor(1)
             return zero_matrix
 
         condition = _get_condition_matrix(zero_matrix, kpts)
