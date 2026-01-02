@@ -210,3 +210,4 @@ dataset/
 training_logs/
 .pt
 snapshot-best.pt
+*.onnx
