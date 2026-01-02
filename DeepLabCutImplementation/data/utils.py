@@ -23,15 +23,6 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Colormap
 import matplotlib.patches as patches
 
-
-@lru_cache(maxsize=None)
-def read_image_shape_fast(path: str | Path) -> tuple[int, int, int]:
-    """Blazing fast and does not load the image into memory"""
-    with Image.open(path) as img:
-        width, height = img.size
-        return len(img.getbands()), height, width
-
-
 def bbox_from_keypoints(
     keypoints: np.ndarray,
     image_h: int,
@@ -80,38 +71,6 @@ def bbox_from_keypoints(
         return bboxes[0]
 
     return bboxes
-
-
-def merge_list_of_dicts(
-    list_of_dicts: list[dict], keys_to_include: list[str]
-) -> dict[str, list]:
-    """
-    Flattens a list of dictionaries into a dictionary with the lists concatenated.
-
-    Args:
-        list_of_dicts: the dictionaries to merge
-        keys_to_include: the keys to include in the new dictionary
-
-    Returns:
-        the merged dictionary
-
-    Examples:
-        input:
-            list_of_dicts: [{"id": 0, "num": 1}, {"id": 1, "num": 10}]
-            keys_to_include: ["id", "num"]
-        output:
-            {"id": [0, 1], "num": [1, 10]}
-    """
-    return reduce(
-        lambda acc, d: {
-            key: acc.get(key, []) + [value]
-            for key, value in d.items()
-            if key in keys_to_include
-        },
-        list_of_dicts,
-        defaultdict(list),
-    )
-
 
 def map_image_path_to_id(images: list[dict]) -> dict[str, int]:
     """
@@ -199,181 +158,6 @@ def _crop_and_pad_image(
 
     return pad_image, (pad_h, pad_w)
 
-
-def _crop_and_pad_keypoints(
-    keypoints: np.ndarray, coords: tuple[int, int], pad_size: tuple[int, int]
-):
-    """
-    Adjust the keypoints after cropping and padding.
-
-    Parameters:
-        keypoints: The original keypoints, typically a 2D array of shape (..., 2).
-        coords: The (xmin, ymin) crop coordinates used for cropping the image.
-        pad_size: The padding sizes added to the cropped image, in the format (pad_h, pad_w).
-
-    Returns:
-        Adjusted keypoints.
-    """
-    keypoints[..., 0] -= coords[0]
-    keypoints[..., 1] -= coords[1]
-    keypoints[..., 0] += pad_size[1] // 2
-    keypoints[..., 1] += pad_size[0] // 2
-    return keypoints
-
-
-def _crop_image_keypoints(
-    image, keypoints, coords, output_size
-) -> tuple[np.ndarray, np.ndarray, tuple[int, int], tuple[int, int]]:
-    """TODO: Requires fixing
-    Crop the image based on a given bounding box and resize it to the desired output
-    size. Returns offsets and scales to map keypoints in the resized image to
-    coordinates in the original image:
-
-        x_original = (x_cropped * x_scale) + x_offset
-        y_original = (y_cropped * y_scale) + y_offset
-
-    Args:
-        image: Image to crop, of shape (height, width, channels).
-        coords: Coordinates for cropping as ((xmin, xmax), (ymin, ymax)).
-        output_size: The (h, w) that the cropped image should be resized to.
-
-    Returns:
-        Cropped, possibly padded, and resized image.
-        The position of the keypoints in the cropped, resized image
-        Offsets used for cropping.
-        The offsets to map predicted keypoints back to the original image
-        The scale to map predicted keypoints back to the original image
-    """
-
-    cropped_image, pad_size = _crop_and_pad_image(image, coords, output_size)
-    cropped_keypoints = _crop_and_pad_keypoints(
-        keypoints, (coords[0][0], coords[1][0]), pad_size
-    )
-
-    offsets = (coords[0][0], coords[1][0])
-    scales = [
-        output_size[0] / cropped_image.shape[0],
-        output_size[1] / cropped_image.shape[1],
-    ]
-
-    # TODO: Fix resizing, use OpenCV
-    cropped_resized_image = np.resize(
-        cropped_image, (*output_size, cropped_image.shape[2])
-    )
-
-    cropped_resized_keypoints = np.array(cropped_keypoints) * np.array(scales + [1])
-
-    return cropped_resized_image, cropped_resized_keypoints, offsets, scales
-
-
-def _compute_crop_bounds(
-    bboxes: np.ndarray,
-    image_shape: tuple[int, int, int],
-    remove_empty: bool = True,
-) -> np.ndarray:
-    """
-    Compute the boundaries for cropping an image based on a COCO-format bounding box
-    and image shape by clipping values so the bounding boxes are entirely in the image.
-
-    Args:
-        bboxes: COCO-format bounding box of shape (b, xywh)
-        image_shape: Shape of the image defined as (height, width, channels).
-
-    Returns:
-        The bounding boxes, clipped to be entirely inside the image
-    """
-    h, w = image_shape[:2]
-    # to xyxy
-    bboxes[:, 2] = bboxes[:, 0] + bboxes[:, 2]
-    bboxes[:, 3] = bboxes[:, 1] + bboxes[:, 3]
-    # clip
-    bboxes = np.clip(bboxes, 0, np.array([w, h, w, h]))
-    # to xywh
-    bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 0]
-    bboxes[:, 3] = bboxes[:, 3] - bboxes[:, 1]
-    # filter
-    if remove_empty:
-        squashed_bbox_mask = np.logical_or(bboxes[:, 2] <= 0, bboxes[:, 3] <= 0)
-        bboxes = bboxes[~squashed_bbox_mask]
-    return bboxes
-
-
-def _extract_keypoints_and_bboxes(
-    anns: list[dict],
-    image_shape: tuple[int, int, int],
-    num_joints: int,
-    num_unique_bodyparts: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    """
-    Args:
-        anns: COCO-style annotations
-        image_shape: the (h, w, c) shape of the image for which to get annotations
-        num_joints: the number of joints in the annotations
-
-    Returns:
-        keypoints, unique_keypoints, bboxes in xywh format, annotations_merged
-    """
-    keypoints = []
-    original_bboxes = []
-    anns_to_merge = []
-    unique_keypoints = None
-    h, w = image_shape[:2]
-    for i, annotation in enumerate(anns):
-        keypoints_individual = _annotation_to_keypoints(annotation, h, w)
-        if annotation["individual"] != "single":
-            bbox_individual = annotation["bbox"]
-            original_bboxes.append(bbox_individual)
-            keypoints.append(keypoints_individual)
-            anns_to_merge.append(annotation)
-        else:
-            unique_keypoints = keypoints_individual
-
-    if unique_keypoints is None:
-        unique_keypoints = -1 * np.ones((num_unique_bodyparts, 3), dtype=float)
-
-    keypoints = safe_stack(keypoints, (0, num_joints, 3))
-    original_bboxes = safe_stack(original_bboxes, (0, 4))
-    bboxes = _compute_crop_bounds(original_bboxes, image_shape, remove_empty=False)
-
-    # at least 1 visible joint to keep individuals
-    vis_mask = (keypoints[..., 2] > 0).any(axis=1)
-    keypoints = keypoints[vis_mask]
-    bboxes = bboxes[vis_mask]
-
-    keys_to_merge = ["area", "category_id", "iscrowd", "individual_id"]
-    anns_merged = {k: [] for k in keys_to_merge}
-    if len(anns_to_merge) > 0:
-        anns_merged = merge_list_of_dicts(anns_to_merge, keys_to_include=keys_to_merge)
-    anns_merged = {k: np.array(v)[vis_mask] for k, v in anns_merged.items()}
-
-    if len(anns_merged["area"]) != len(keypoints):
-        raise ValueError(f"Missing area values! {anns_merged}, {keypoints.shape}")
-
-    return keypoints, unique_keypoints, bboxes, anns_merged
-
-
-def calc_area_from_keypoints(keypoints: np.ndarray) -> np.ndarray:
-    """
-    Calculate the area from keypoints
-
-    TODO: in the pups benchmark, there are 5 keypoints perfectly aligned so
-     the area is 0.
-     How do we deal with that?
-     Makes more sense to compute the area from the bboxes (they are padded)
-     Below is a temporary fix, which sets a min height and width to 5
-     Suggestion: compute min height/width using labeled data
-
-    Args:
-        keypoints (np.ndarray): array of keypoints
-
-    Returns:
-        np.ndarray: array containing the computed areas based on the keypoints
-    """
-    w = np.maximum(keypoints[:, :, 0].max(axis=1) - keypoints[:, :, 0].min(axis=1), 1)
-    h = np.maximum(keypoints[:, :, 1].max(axis=1) - keypoints[:, :, 1].min(axis=1), 1)
-    return w * h
-
-
 def calc_bbox_overlap(bbox1: np.ndarray, bbox2: np.ndarray) -> np.ndarray:
     """
     Calculate the overlap between two bounding boxes
@@ -400,27 +184,6 @@ def calc_bbox_overlap(bbox1: np.ndarray, bbox2: np.ndarray) -> np.ndarray:
     union = w1 * h1 + w2 * h2 - intersection
 
     return intersection / union
-
-
-def _annotation_to_keypoints(annotation: dict, h: int, w: int) -> np.array:
-    """
-    Convert the coco annotations into array of keypoints returns the array of the
-    keypoints' visibility. If keypoint is not visible, the value for (x,y) coordinates
-    is set to 0. If the keypoints are outside of the image, they are also set to 0.
-
-    Args:
-        annotation: dictionary containing coco-like annotations with essential
-            `keypoints` field
-        h: the image height
-        w: the image width
-
-    Returns:
-        keypoints: np.array where the first two columns are x and y coordinates of the
-
-    """
-    # we don't mess up visibility flags here
-    return annotation["keypoints"].reshape(-1, 3)
-
 
 def apply_transform(
     transform: A.BaseCompose,

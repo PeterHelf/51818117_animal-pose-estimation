@@ -16,36 +16,6 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 
-from DeepLabCutImplementation.core.weight_init import WeightInitialization
-
-def _build_detector(
-    cfg: dict,
-    weight_init: WeightInitialization | None = None,
-    pretrained: bool = False,
-    **kwargs,
-) -> BaseDetector:
-    """Builds a detector using its configuration file
-
-    Args:
-        cfg: The detector configuration.
-        weight_init: The weight initialization to use.
-        pretrained: Whether COCO pretrained weights should be loaded for the detector
-        **kwargs: Other parameters given by the Registry.
-
-    Returns:
-        the built detector
-    """
-    cfg["pretrained"] = pretrained
-    detector: BaseDetector = build_from_cfg(cfg, **kwargs)
-
-    if weight_init is not None and weight_init.detector_snapshot_path is not None:
-        logging.info(
-            f"Loading detector checkpoint from {weight_init.detector_snapshot_path}"
-        )
-        snapshot = torch.load(weight_init.detector_snapshot_path, map_location="cpu")
-        detector.load_state_dict(snapshot["model"])
-
-    return detector
 
 class BaseDetector(ABC, nn.Module):
     """

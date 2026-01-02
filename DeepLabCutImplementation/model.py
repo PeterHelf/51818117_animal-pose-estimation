@@ -143,33 +143,6 @@ class PoseModel(nn.Module):
         """
         return self._strides[head]
 
-def filter_state_dict(state_dict: dict, module: str) -> dict[str, torch.Tensor]:
-    """
-    Filters keys in the state dict for a module to only keep a given prefix. Removes
-    the module from the keys (e.g. for module="backbone", "backbone.stage1.weight" will
-    be converted to "stage1.weight" so the state dict can be loaded into the backbone
-    directly).
-
-    Args:
-        state_dict: the state dict
-        module: the module to keep, e.g. "backbone"
-
-    Returns:
-        the filtered state dict, with the module removed from the keys
-
-    Examples:
-        state_dict = {"backbone.conv.weight": t1, "head.conv.weight": t2}
-        filtered = filter_state_dict(state_dict, "backbone")
-        # filtered = {"conv.weight": t1}
-        model.backbone.load_state_dict(filtered)
-    """
-    return {
-        ".".join(k.split(".")[1:]): v  # remove 'backbone.' from the keys
-        for k, v in state_dict.items()
-        if k.startswith(module)
-    }
-
-
 def _model_stride(backbone_stride: int | float, head_stride: int | float) -> float:
     """Computes the model stride from a backbone and a head"""
     if head_stride > 0:

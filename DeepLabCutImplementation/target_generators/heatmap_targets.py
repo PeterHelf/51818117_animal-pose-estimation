@@ -25,7 +25,7 @@ class HeatmapGenerator(BaseGenerator):
     individual identification.
 
     This class is abstract, and heatmap targets should be generated through its
-    subclasses (such as HeatmapPlateauGenerator)
+    subclasses
     """
 
     class Mode(Enum):
@@ -296,31 +296,3 @@ class HeatmapGaussianGenerator(HeatmapGenerator):
 
         if locref_mask is not None:
             locref_mask[dist <= self.dist_thresh_sq] = 1
-
-
-class HeatmapPlateauGenerator(HeatmapGenerator):
-    """Generates plateau heatmaps (and locref) targets from keypoints"""
-
-    def update(
-        self,
-        heatmap: np.ndarray,
-        grid: np.mgrid,
-        keypoint: np.ndarray,
-        locref_map: np.ndarray | None,
-        locref_mask: np.ndarray | None,
-    ) -> None:
-        """Updates the heatmap (and locref if defined) with plateau values"""
-        # revert keypoints to follow image convention: from x,y to y,x
-        keypoint = keypoint.copy()[::-1]
-        dist = np.sum((grid - keypoint) ** 2, axis=2)
-        mask = dist <= self.dist_thresh_sq
-        heatmap[mask] = 1
-
-        if locref_map is not None:
-            dx = keypoint[1] - grid.copy()[:, :, 1]
-            dy = keypoint[0] - grid.copy()[:, :, 0]
-            locref_map[mask, 0] = (dx * self.locref_scale)[mask]
-            locref_map[mask, 1] = (dy * self.locref_scale)[mask]
-
-        if locref_mask is not None:
-            locref_mask[mask] = 1

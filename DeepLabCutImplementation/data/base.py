@@ -56,9 +56,8 @@ class Loader(ABC):
     ) -> None:
         self.project_root = Path(project_root)
         self.image_root = Path(image_root)
-        #self.model_config_path = Path(model_config_path)
         self.data_config = data_config
-        self.pose_task = Task.COND_TOP_DOWN#Task(self.model_cfg["method"])
+        self.pose_task = Task.COND_TOP_DOWN
         self._loaded_data: dict[str, dict[str, list[dict]]] = {}
 
     @property
@@ -89,15 +88,6 @@ class Loader(ABC):
         if detector:
             prefix = Task.DETECT.snapshot_prefix
         return list_snapshots(self.model_folder, prefix, best_in_last=best_in_last)
-
-    def update_model_cfg(self, updates: dict) -> None:
-        """Updates the model configuration
-
-        Args:
-            updates: the items to update in the model configuration
-        """
-        self.model_cfg = config.update_config_by_dotpath(self.model_cfg, updates)
-        config_utils.write_config(self.model_config_path, self.model_cfg)
 
     @abstractmethod
     def load_data(self, mode: str = "train") -> dict[str, list[dict]]:
