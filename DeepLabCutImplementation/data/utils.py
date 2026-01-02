@@ -23,6 +23,15 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Colormap
 import matplotlib.patches as patches
 
+
+@lru_cache(maxsize=None)
+def read_image_shape_fast(path: str | Path) -> tuple[int, int, int]:
+    """Blazing fast and does not load the image into memory"""
+    with Image.open(path) as img:
+        width, height = img.size
+        return len(img.getbands()), height, width
+
+
 def bbox_from_keypoints(
     keypoints: np.ndarray,
     image_h: int,
