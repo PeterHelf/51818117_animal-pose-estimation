@@ -91,10 +91,10 @@ class BaseKeypointEncoder(ABC):
             The heatmap with a Gaussian blur, such that max(heatmap) = 255
         """
         heatmap = TF.gaussian_blur(heatmap, self.kernel_size, sigma=None)
-        #am = torch.max(heatmap)
-        #if am == 0:
-        #    return heatmap
-        #heatmap /= am / 255
+        am = torch.max(heatmap)
+        if am == 0:
+            return heatmap
+        heatmap /= am / 255
         return heatmap
 
     # def blur_heatmap_batch(self, heatmaps: torch.tensor) -> np.ndarray:
@@ -138,10 +138,10 @@ class StackedKeypointEncoder(BaseKeypointEncoder):
         kpts[kpts[..., 2] > 0, 2] = 2
         kpts = torch.nan_to_num(kpts)
 
-        #oob_mask = out_of_bounds_keypoints(kpts, self.img_size)
-        #oob_mask_sum = torch.sum(oob_mask)
-        #if torch.gt(oob_mask_sum, torch.tensor(0)):#oob_mask_sum > 0:
-        #    kpts[oob_mask] = 0
+        oob_mask = out_of_bounds_keypoints(kpts, self.img_size)
+        oob_mask_sum = torch.sum(oob_mask)
+        if oob_mask_sum > 0:
+            kpts[oob_mask] = 0
         kpts = kpts.type(torch.int)
 
         zero_matrix = torch.zeros((batch_size, size[0], size[1], self.num_channels))
@@ -156,10 +156,6 @@ class StackedKeypointEncoder(BaseKeypointEncoder):
                     y[mask],
                     torch.arange(self.num_joints, dtype=torch.int64)[mask],
                 )
-                print(j.dtype)
-                print((y_masked - 1).dtype)
-                print(( x_masked - 1).dtype)
-                print(joint_inds_masked.dtype)
                 index = [j, (y_masked - 1).type(torch.int64), (x_masked - 1).type(torch.int64), joint_inds_masked]
                 torch.index_put_(zero_matrix, index, torch.tensor(255.0))
                 #zero_matrix[torch.tensor(i), y_masked - 1, x_masked - 1, joint_inds_masked] = torch.tensor(255.0)
