@@ -203,6 +203,7 @@ def _crop_and_pad_keypoints(
     Returns:
         Adjusted keypoints.
     """
+<<<<<<< HEAD
     keypoints[..., 0] -= coords[0]
     keypoints[..., 1] -= coords[1]
     keypoints[..., 0] += pad_size[1] // 2
@@ -254,6 +255,22 @@ def _crop_image_keypoints(
 
     return cropped_resized_image, cropped_resized_keypoints, offsets, scales
 
+=======
+    h, w = image_shape[:2]
+    # to xyxy
+    bboxes[:, 2] = bboxes[:, 0] + bboxes[:, 2]
+    bboxes[:, 3] = bboxes[:, 1] + bboxes[:, 3]
+    # clip
+    bboxes = np.clip(bboxes, 0, np.array([w, h, w, h]))
+    # to xywh
+    bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 0]
+    bboxes[:, 3] = bboxes[:, 3] - bboxes[:, 1]
+    # filter
+    if remove_empty:
+        squashed_bbox_mask = np.logical_or(bboxes[:, 2] <= 0, bboxes[:, 3] <= 0)
+        bboxes = bboxes[~squashed_bbox_mask]
+    return bboxes
+>>>>>>> 1fab09d3ee169db6c6aae85a512bcbdfcc243c99
 
 def calc_bbox_overlap(bbox1: np.ndarray, bbox2: np.ndarray) -> np.ndarray:
     """
