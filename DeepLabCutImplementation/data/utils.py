@@ -142,6 +142,119 @@ def _compute_crop_bounds(
         bboxes = bboxes[~squashed_bbox_mask]
     return bboxes
 
+
+def _crop_and_pad_image(
+    image: np.ndarray,
+    coords: tuple[tuple[int, int], tuple[int, int]],
+    output_size: tuple[int, int],
+) -> tuple[np.ndarray, tuple[int, int]]:
+    """
+    Crop the image using the given coordinates and pad the larger dimension to change
+    the aspect ratio.
+
+    Args:
+        image: Image to crop, of shape (height, width, channels).
+        coords: Coordinates for cropping as [(xmin, xmax), (ymin, ymax)].
+        output_size: The (output_h, output_w) that this cropped image will be resized
+            to. Used to compute padding to keep aspect ratios.
+
+    Returns:
+        Cropped (and possibly padded) image
+        Padding (pad_h, pad_w)
+    """
+    cropped_image = image[coords[1][0] : coords[1][1], coords[0][0] : coords[0][1], :]
+
+    crop_h, crop_w, c = cropped_image.shape
+    pad_h, pad_w = 0, 0
+    target_ratio_h = output_size[0] / crop_h
+    target_ratio_w = output_size[1] / crop_w
+
+    if target_ratio_h != target_ratio_w:
+        if crop_h < crop_w:
+            # Pad the height
+            new_h = int(crop_w * output_size[0] / output_size[1])
+            pad_h = new_h - crop_h
+            pad_image = np.zeros((new_h, crop_w, c))
+            y_offset = pad_h // 2
+            pad_image[y_offset : y_offset + crop_h, :] = cropped_image
+        else:
+            # Pad the width
+            new_w = int(crop_h * output_size[1] / output_size[0])
+            pad_w = new_w - crop_w
+            pad_image = np.zeros((crop_h, new_w, c))
+            x_offset = pad_w // 2
+            pad_image[:, x_offset : x_offset + crop_w] = cropped_image
+    else:
+        pad_image = cropped_image
+
+    return pad_image, (pad_h, pad_w)
+
+def _crop_and_pad_keypoints(
+    keypoints: np.ndarray, coords: tuple[int, int], pad_size: tuple[int, int]
+):
+    """
+    Adjust the keypoints after cropping and padding.
+
+    Parameters:
+        keypoints: The original keypoints, typically a 2D array of shape (..., 2).
+        coords: The (xmin, ymin) crop coordinates used for cropping the image.
+        pad_size: The padding sizes added to the cropped image, in the format (pad_h, pad_w).
+
+    Returns:
+        Adjusted keypoints.
+    """
+    keypoints[..., 0] -= coords[0]
+    keypoints[..., 1] -= coords[1]
+    keypoints[..., 0] += pad_size[1] // 2
+    keypoints[..., 1] += pad_size[0] // 2
+    return keypoints
+
+
+def _crop_image_keypoints(
+    image, keypoints, coords, output_size
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int], tuple[int, int]]:
+    """TODO: Requires fixing
+    Crop the image based on a given bounding box and resize it to the desired output
+    size. Returns offsets and scales to map keypoints in the resized image to
+    coordinates in the original image:
+
+        x_original = (x_cropped * x_scale) + x_offset
+        y_original = (y_cropped * y_scale) + y_offset
+
+    Args:
+        image: Image to crop, of shape (height, width, channels).
+        coords: Coordinates for cropping as ((xmin, xmax), (ymin, ymax)).
+        output_size: The (h, w) that the cropped image should be resized to.
+
+    Returns:
+        Cropped, possibly padded, and resized image.
+        The position of the keypoints in the cropped, resized image
+        Offsets used for cropping.
+        The offsets to map predicted keypoints back to the original image
+        The scale to map predicted keypoints back to the original image
+    """
+
+    cropped_image, pad_size = _crop_and_pad_image(image, coords, output_size)
+    cropped_keypoints = _crop_and_pad_keypoints(
+        keypoints, (coords[0][0], coords[1][0]), pad_size
+    )
+
+    offsets = (coords[0][0], coords[1][0])
+    scales = [
+        output_size[0] / cropped_image.shape[0],
+        output_size[1] / cropped_image.shape[1],
+    ]
+
+    # TODO: Fix resizing, use OpenCV
+    cropped_resized_image = np.resize(
+        cropped_image, (*output_size, cropped_image.shape[2])
+    )
+
+    cropped_resized_keypoints = np.array(cropped_keypoints) * np.array(scales + [1])
+
+    return cropped_resized_image, cropped_resized_keypoints, offsets, scales
+
+
 def calc_bbox_overlap(bbox1: np.ndarray, bbox2: np.ndarray) -> np.ndarray:
     """
     Calculate the overlap between two bounding boxes
