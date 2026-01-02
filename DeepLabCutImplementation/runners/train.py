@@ -27,7 +27,7 @@ import DeepLabCutImplementation.runners.schedulers as schedulers
 from DeepLabCutImplementation.detectors.base import BaseDetector
 from DeepLabCutImplementation.model import PoseModel
 from DeepLabCutImplementation.runners.base import attempt_snapshot_load, ModelType, Runner
-from DeepLabCutImplementation.runners.logger import BaseLogger, CSVLogger, ImageLoggerMixin
+from DeepLabCutImplementation.runners.logger import BaseLogger, CSVLogger
 
 from DeepLabCutImplementation.runners.snapshots import TorchSnapshotManager
 from DeepLabCutImplementation.task import Task
@@ -200,9 +200,6 @@ class TrainingRunner(Runner, Generic[ModelType], metaclass=ABCMeta):
             self.model = DataParallel(self.model, device_ids=self._gpus).cuda()
         else:
             self.model.to(self.device)
-
-        if isinstance(self.logger, ImageLoggerMixin):
-            self.logger.select_images_to_log(train_loader, valid_loader)
 
         # continuing to train a model: either total epochs or extra epochs
         if self.starting_epoch > 0:
@@ -459,9 +456,6 @@ class PoseTrainingRunner(TrainingRunner[PoseModel]):
         if mode == "train":
             losses_dict["total_loss"].backward()
             self.optimizer.step()
-
-        if isinstance(self.logger, ImageLoggerMixin):
-            self.logger.log_images(batch, outputs, target, step=self.current_epoch)
 
         if mode == "eval":
             predictions = {
