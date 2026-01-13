@@ -1,3 +1,23 @@
+# BUCTD Demo App
+
+A Blazor web application has been developed to demonstrate the performance of the BUCTD model. The web app allows users to upload images and the model then estimates the pose of the depicted animal. The application can be deployed with docker using the docker-compose.yml file in the BUCTDDemo folder. The BUCTDDemo/test_images folder provides some images found on the web on which the pose estimation can be tested.
+
+The ONNX format model files need to be downloaded from the release section and placed in the BUCTDDemo/BUCTDDemo folder.
+
+```text
+51818117_animal-pose-estimation
+|── BUCTDDemo
+    │-- BUCTDDemo.slnx
+    │-- docker-compose.yml
+    │── test_images
+    │── BUCTDDemo
+        │-- BUCTDDemo.csproj
+        │-- Dockerfile
+        │-- BUCTD_model.onnx
+        │-- hrnet_model.onnx
+```
+
+
 # Assignment 2 - Hacking
 
 The aim of this project was the implementation of the [BUCTD](https://openaccess.thecvf.com/content/ICCV2023/papers/Zhou_Rethinking_Pose_Estimation_in_Crowds_Overcoming_the_Detection_Information_Bottleneck_ICCV_2023_paper.pdf) model and the testing of it on the [AP-10k](https://openreview.net/forum?id=rH8yliN6C83) animal pose dataset.
@@ -17,14 +37,14 @@ The file needs to be palced in the dataset folder of this project and unzipped. 
 ├── DeepLabCutImplementation
 ├── Wrappers
 ├── result_images
-├── training.ipynb
-├── inference.ipynb
-├── hyperparameter_tuning.ipynb
-├── requirements.txt
-├── snapshot-best.pt
+│-- training.ipynb
+│-- inference.ipynb
+│-- hyperparameter_tuning.ipynb
+│-- requirements.txt
+│-- snapshot-best.pt
 |── dataset
     │── ap10k
-        │-- annotations
+        │── annotations
         │   │-- ap10k-train-split1.json
         │   |-- ap10k-train-split2.json
         │   |-- ap10k-train-split3.json
@@ -34,7 +54,7 @@ The file needs to be palced in the dataset folder of this project and unzipped. 
         │   |-- ap10k-test-split1.json
         │   |-- ap10k-test-split2.json
         │   |-- ap10k-test-split3.json
-        │-- data
+        │── data
         │   │-- 000000000001.jpg
         │   │-- 000000000002.jpg
         │   │-- ...
@@ -87,4 +107,5 @@ The best performing model architecture identifed in the previous step was traini
 !["Keypoint detection result 4"](/result_images/result4.png "Result 4")
 
 !["Keypoint detection result 5"](/result_images/result5.png "Result 5")
+
 
