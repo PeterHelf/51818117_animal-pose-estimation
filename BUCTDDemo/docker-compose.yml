@@ -1,0 +1,11 @@
+services:
+  buctddemo:
+    build:
+      context: .
+      dockerfile: BUCTDDemo/Dockerfile
+    ports:
+      - "8080:8080"
+      #- "8081:8081"
+    environment:
+      - ASPNETCORE_HTTP_PORTS=8080
+      #- ASPNETCORE_HTTPS_PORTS=8081
