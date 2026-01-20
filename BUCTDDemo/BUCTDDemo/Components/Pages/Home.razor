@@ -7,6 +7,7 @@
 @using SixLabors.ImageSharp
 @using SixLabors.ImageSharp.PixelFormats
 @using SixLabors.ImageSharp.Processing
+@using System.Linq
 @inject OnnxModelService OnnxService
 
 <h3>Upload an image of an animal to estimate the pose</h3>
@@ -32,29 +33,35 @@
             }
 
             <svg viewBox="0 0 @DisplayWidthPx @DisplayHeightPx" aria-hidden="true" style="position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none;">
-                @* Draw skeleton lines first so keypoint circles render on top *@
-                @foreach (var edge in SkeletonEdges)
+                @* Draw skeleton lines and keypoints per individual*@
+                @foreach (var individual in DrawKeypoints.GroupBy(k => k.IndividualId))
                 {
-                    var a = edge.Item1;
-                    var b = edge.Item2;
-                    var ka = DrawKeypoints.FirstOrDefault(k => k.KeypointNr == a);
-                    var kb = DrawKeypoints.FirstOrDefault(k => k.KeypointNr == b);
-                    if (ka is not null && kb is not null)
-                    {
-                        <line x1="@ka.X" y1="@ka.Y" x2="@kb.X" y2="@kb.Y"
-                              stroke="lime" stroke-width="2" stroke-linecap="round" opacity="0.9" />
-                    }
-                }
+                    var color = individualColors[individual.Key % individualColors.Length];
 
-                @* Draw keypoint markers and labels *@
-                @foreach (var kp in DrawKeypoints)
-                {
-                    <circle cx="@kp.X" cy="@kp.Y" r="4" fill="red" stroke="white" stroke-width="1" opacity="0.9" />
-                    <text>
-                        <text x="@(kp.X - 2)" y="@(kp.Y + 2)" font-size="5" fill="white" stroke="black" stroke-width="0.5">
-                            @kp.KeypointNr
+                    @* Draw skeleton lines for this individual *@
+                    foreach (var edge in SkeletonEdges)
+                    {
+                        var a = edge.Item1;
+                        var b = edge.Item2;
+                        var ka = individual.FirstOrDefault(k => k.KeypointNr == a);
+                        var kb = individual.FirstOrDefault(k => k.KeypointNr == b);
+                        if (ka is not null && kb is not null)
+                        {
+                            <line x1="@ka.X" y1="@ka.Y" x2="@kb.X" y2="@kb.Y"
+                                  stroke="@color" stroke-width="2" stroke-linecap="round" opacity="0.9" />
+                        }
+                    }
+
+                    @* Draw keypoint markers and labels for this individual *@
+                    foreach (var kp in individual)
+                    {
+                        <circle cx="@kp.X" cy="@kp.Y" r="3" fill="@color" stroke="white" stroke-width="1" opacity="0.95" />
+                        <text>
+                            <text x="@(kp.X - 2)" y="@(kp.Y + 2)" font-size="5" fill="white" stroke="black" stroke-width="0.5">
+                                @kp.KeypointNr
+                            </text>
                         </text>
-                    </text>
+                    }
                 }
             </svg>
         </div>
@@ -95,9 +102,6 @@
 @code {
     private string? PreviewImageDataUrl;
     private byte[,,]? Image;
-    private int Width;
-    private int Height;
-    private int Channels;
     private string? InferenceSummary;
 
     // keypoints to draw (in image pixel coordinates)
@@ -132,7 +136,18 @@
 
     private bool IsLoading = false;
 
-    private record Keypoint(int X, int Y, float Prob, int KeypointNr);
+    private record Keypoint(int X, int Y, float Prob, int KeypointNr, int IndividualId);
+
+    // color palette for different detected individuals
+    private readonly string[] individualColors = new[]
+    {
+        "#FF3B30", // red
+        "#34C759", // green
+        "#007AFF", // blue
+        "#FF9500", // orange
+        "#AF52DE", // purple
+        "#FF2D55"  // pink
+    };
 
     private async Task OnInputFileChange(InputFileChangeEventArgs e)
     {
@@ -144,16 +159,31 @@
         {
             PreviewImageDataUrl = null;
             Image = null;
-            Width = Height = Channels = 0;
             return;
         }
 
+        IsLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await ProcessFileAsync(file);
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProcessFileAsync(IBrowserFile file)
+    {
         // Read file bytes
         await using var ms = new MemoryStream();
         await file.OpenReadStream(MaxFileSize).CopyToAsync(ms);
         var bytes = ms.ToArray();
 
-        // Load with ImageSharp, resize to 256x256 (pad to preserve aspect ratio), then create a PNG preview
+        // Load and resize image
         await using var imageStream = new MemoryStream(bytes);
         using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(imageStream);
 
@@ -164,23 +194,49 @@
             PadColor = Color.Black
         }));
 
-        // Save resized image to preview data URL
-        await using var outMs = new MemoryStream();
-        await image.SaveAsPngAsync(outMs);
-        PreviewImageDataUrl = $"data:image/png;base64,{Convert.ToBase64String(outMs.ToArray())}";
-
-        // show loading indicator while the model runs
-        IsLoading = true;
+        // Save preview
+        PreviewImageDataUrl = await CreatePreviewDataUrlAsync(image);
         StateHasChanged();
 
-        var resizedWidth = image.Width;
-        var resizedHeight = image.Height;
-        const int channels = 4; // R,G,B,A
-        var arr = new byte[channels, resizedHeight, resizedWidth];
+        // prepare raw image array and metadata
+        Image = CreateImageArrayFromImage(image);
 
-        for (var y = 0; y < resizedHeight; y++)
+        if (Image is null)
         {
-            for (var x = 0; x < resizedWidth; x++)
+            InferenceSummary = "Image could not be read.";
+            return;
+        }
+
+        // Build image tensor [1,3,H,W]
+        var imageTensor = BuildImageTensor(Image, TargetSize, TargetSize);
+
+        var kpCount = 17;
+
+        // Build conditioning tensor
+        var condTensor = BuildCondTensor(imageTensor, TargetSize, TargetSize, kpCount);
+
+        // Run model per detected individual
+        await RunModelForIndividualsAsync(image, condTensor, TargetSize, TargetSize, kpCount);
+    }
+
+    private async Task<string> CreatePreviewDataUrlAsync(Image<Rgba32> image)
+    {
+        await using var outMs = new MemoryStream();
+        await image.SaveAsPngAsync(outMs);
+        return $"data:image/png;base64,{Convert.ToBase64String(outMs.ToArray())}";
+    }
+
+    // return a byte[channels, H, W] from Image
+    private byte[,,] CreateImageArrayFromImage(Image<Rgba32> image)
+    {
+        var w = image.Width;
+        var h = image.Height;
+        const int channels = 4;
+        var arr = new byte[channels, h, w];
+
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
             {
                 var px = image[x, y];
                 arr[0, y, x] = px.R;
@@ -190,119 +246,104 @@
             }
         }
 
-        Image = arr;
-        Height = resizedHeight;
-        Width = resizedWidth;
-        Channels = channels;
+        return arr;
+    }
 
-        DisplayWidthPx = Width;
-        DisplayHeightPx = Height;
-
-        if (Image is null || Channels < 3)
-        {
-            InferenceSummary = "Image could not be read or has less than 3 channels.";
-            return;
-        }
-
-        var H = Height;
-        var W = Width;
-        var tensorShape = new[] { 1, 3, H, W };
+    private DenseTensor<float> BuildImageTensor(byte[,,] img, int imageWidth, int imageHeight)
+    {
+        var tensorShape = new[] { 1, 3, imageHeight, imageWidth };
         var imageTensor = new DenseTensor<float>(tensorShape);
 
         // ImageNet mean/std (RGB)
         const float meanR = 0.485f, meanG = 0.456f, meanB = 0.406f;
         const float stdR = 0.229f, stdG = 0.224f, stdB = 0.225f;
 
-        // Build image tensor [1,3,H,W] normalized to [0,1] and then normalized by ImageNet mean/std.
-        for (var y = 0; y < H; y++)
+        for (var y = 0; y < imageHeight; y++)
         {
-            for (var x = 0; x < W; x++)
+            for (var x = 0; x < imageWidth; x++)
             {
-                var r = Image[0, y, x] / 255f;
-                var g = Image[1, y, x] / 255f;
-                var b = Image[2, y, x] / 255f;
+                var r = img[0, y, x] / 255f;
+                var g = img[1, y, x] / 255f;
+                var b = img[2, y, x] / 255f;
 
-                // Apply ImageNet normalization: (value - mean) / std
                 imageTensor[0, 0, y, x] = (r - meanR) / stdR; // R
                 imageTensor[0, 1, y, x] = (g - meanG) / stdG; // G
                 imageTensor[0, 2, y, x] = (b - meanB) / stdB; // B
             }
         }
 
-        var kpCount = 17;
+        return imageTensor;
+    }
 
-        DenseTensor<float> condTensor;
-
-        if (OnnxService.HrnetAvailable)
+    private DenseTensor<float> BuildCondTensor(DenseTensor<float> imageTensor, int imageWidth, int imageHeight, int kpCount)
+    {
+        if (!OnnxService.HrnetAvailable)
         {
-            try
-            {
-                var hrInputNames = OnnxService.HrnetInputNames;
-                var hrImageInputName = hrInputNames?.FirstOrDefault() ?? OnnxService.InputNames.First();
-
-                var hrImageInput = NamedOnnxValue.CreateFromTensor(hrImageInputName, imageTensor);
-
-                using var hrResults = OnnxService.RunHrnet(new[] { hrImageInput });
-
-                // Find first tensor<float> output
-                var hrTensor = hrResults.Select(r => r.Value).OfType<Tensor<float>>().FirstOrDefault();
-
-                if (hrTensor != null)
-                {
-                    var dims = hrTensor.Dimensions.ToArray();
-
-                    var repeats = dims[1];
-                    condTensor = new DenseTensor<float>(new[] { 1, 1, kpCount, 3 });
-
-                    var highest_conf = 0.0;
-                    var highest_conf_index = 0;
-
-                    for (var r = 0; r < repeats; r++)
-                    {
-                        var conf = 0.0;
-                        for (var i = 0; i < kpCount; i++)
-                        {
-                            conf += hrTensor[0, r, i, 2];
-                        }
-
-                        if (conf > highest_conf)
-                        {
-                            highest_conf_index = r;
-                            highest_conf = conf;
-                        }
-                    }
-
-                    for (var i = 0; i < kpCount; i++)
-                    {
-                        condTensor[0, 0, i, 0] = MathF.Max(0, MathF.Min(TargetSize, hrTensor[0, highest_conf_index, i, 0]));
-                        condTensor[0, 0, i, 1] = MathF.Max(0, MathF.Min(TargetSize, hrTensor[0, highest_conf_index, i, 1]));
-                        condTensor[0, 0, i, 2] = hrTensor[0, highest_conf_index, i, 2];
-                    }
-                }
-                else
-                {
-                    // HRNet produced no float tensor output - fallback to random condition
-                    condTensor = new DenseTensor<float>(new[] { 1, 1, kpCount, 3 });
-                    FillCondTensorRandom(condTensor, W, H, kpCount);
-                }
-            }
-            catch
-            {
-                // HRNet run failed - fallback to random condition
-                condTensor = new DenseTensor<float>(new[] { 1, 1, kpCount, 3 });
-                FillCondTensorRandom(condTensor, W, H, kpCount);
-            }
-        }
-        else
-        {
-            // HRNet not available - fallback random
-            condTensor = new DenseTensor<float>(new[] { 1, 1, kpCount, 3 });
-            FillCondTensorRandom(condTensor, W, H, kpCount);
+            return CreateRandomCondTensor(imageWidth, imageHeight, kpCount);
         }
 
         try
         {
-            // Choose input names from the (primary) model
+            var hrInputNames = OnnxService.HrnetInputNames;
+            var hrImageInputName = hrInputNames?.FirstOrDefault() ?? OnnxService.InputNames.First();
+            var hrImageInput = NamedOnnxValue.CreateFromTensor(hrImageInputName, imageTensor);
+
+            using var hrResults = OnnxService.RunHrnet(new[] { hrImageInput });
+
+            var hrTensor = hrResults.Select(r => r.Value).OfType<Tensor<float>>().FirstOrDefault();
+            if (hrTensor == null)
+            {
+                return CreateRandomCondTensor(imageWidth, imageHeight, kpCount);
+            }
+
+            var dims = hrTensor.Dimensions.ToArray();
+            var repeats = dims[1];
+            var condList = new List<int>();
+
+            // filter low-confidence detections
+            for (var r = 0; r < repeats; r++)
+            {
+                var conf = 0.0;
+                for (var i = 0; i < kpCount; i++)
+                {
+                    conf += hrTensor[0, r, i, 2];
+                }
+
+                if (conf > 2)
+                {
+                    condList.Add(r);
+                }
+            }
+
+            if (condList.Count == 0)
+            {
+                return CreateRandomCondTensor(imageWidth, imageHeight, kpCount);
+            }
+
+            var condTensor = new DenseTensor<float>(new[] { 1, condList.Count, kpCount, 3 });
+            for (int i = 0; i < condList.Count; i++)
+            {
+                var index = condList[i];
+                for (int k = 0; k < kpCount; k++)
+                {
+                    condTensor[0, i, k, 0] = MathF.Max(0, MathF.Min(TargetSize, hrTensor[0, index, k, 0]));
+                    condTensor[0, i, k, 1] = MathF.Max(0, MathF.Min(TargetSize, hrTensor[0, index, k, 1]));
+                    condTensor[0, i, k, 2] = hrTensor[0, index, k, 2];
+                }
+            }
+
+            return condTensor;
+        }
+        catch
+        {
+            return CreateRandomCondTensor(imageWidth, imageHeight, kpCount);
+        }
+    }
+
+    private async Task RunModelForIndividualsAsync(Image<Rgba32> image, DenseTensor<float> condTensor, int W, int H, int kpCount)
+    {
+        try
+        {
             var inputNames = OnnxService.InputNames;
             if (inputNames is null || !inputNames.Any())
             {
@@ -313,42 +354,142 @@
             var imageInputName = inputNames.First();
             var condInputName = inputNames.ElementAt(1);
 
-            var imageInput = NamedOnnxValue.CreateFromTensor(imageInputName, imageTensor);
-            var condInput = NamedOnnxValue.CreateFromTensor(condInputName, condTensor);
-            using var results = OnnxService.Run(new[] { imageInput, condInput });
+            var condDimensions = condTensor.Dimensions;
+            var individuals = condDimensions[1];
+            var condKpCount = condDimensions[2];
+            var condChannels = condDimensions[3];
 
-            foreach (var result in results)
+            for (int i = 0; i < individuals; i++)
             {
-                if (result.Value is Tensor<float> t)
-                {
-                    for (int i = 0; i < kpCount; i++)
-                    {
-                        float x = t[0, 0, i, 0];
-                        float y = t[0, 0, i, 1];
-                        float p = t[0, 0, i, 2];
+                // copy per-individual
+                var slicedCondTensor = CopyCondSlice(condTensor, i, condKpCount, condChannels);
 
-                        AddKeypointIfVisible(x, y, p, W, H, i + 1);
+                // compute bbox
+                var (left, top, right, bottom) = ComputeBoundingBoxFromCond(slicedCondTensor, W, H);
+
+                var cropW = Math.Max(1, right - left);
+                var cropH = Math.Max(1, bottom - top);
+
+                // crop & resize to TargetSize
+                using var individualCrop = image.Clone(ctx => ctx.Crop(new Rectangle(left, top, cropW, cropH)));
+                individualCrop.Mutate(ctx => ctx.Resize(new ResizeOptions
+                {
+                    Size = new Size(TargetSize, TargetSize),
+                    Mode = ResizeMode.Stretch
+                }));
+
+                var cropBytes = CreateImageArrayFromImage(individualCrop);
+                var cropTensor = BuildImageTensor(cropBytes, individualCrop.Width, individualCrop.Height);
+
+                var adjustedCond = AdjustCondCoordinates(slicedCondTensor, left, top, cropW, cropH, condKpCount);
+
+                var imageInputCrop = NamedOnnxValue.CreateFromTensor(imageInputName, cropTensor);
+                var condInput = NamedOnnxValue.CreateFromTensor(condInputName, adjustedCond);
+
+                using var results = OnnxService.Run(new[] { imageInputCrop, condInput });
+
+                foreach (var result in results)
+                {
+                    if (result.Value is Tensor<float> t)
+                    {
+                        for (int j = 0; j < kpCount; j++)
+                        {
+                            float outX = t[0, 0, j, 0];
+                            float outY = t[0, 0, j, 1];
+                            float outP = t[0, 0, j, 2];
+
+                            var origOutX = (outX / TargetSize) * cropW + left;
+                            var origOutY = (outY / TargetSize) * cropH + top;
+
+                            AddKeypointIfVisible(origOutX, origOutY, outP, W, H, j + 1, i);
+                        }
                     }
                 }
             }
 
-            var outNames = results.Select(r => r.Name).ToArray();
-            InferenceSummary = $"Ran model on {W}x{H} image. Drew {DrawKeypoints.Count} keypoints.";
+            InferenceSummary = $"Ran model on {W}x{H} image. Drew {DrawKeypoints.Count} keypoints across {DrawKeypoints.Select(k => k.IndividualId).Distinct().Count()} individuals.";
         }
         catch (Exception ex)
         {
             InferenceSummary = $"Inference failed: {ex.Message}";
         }
-        finally
+    }
+
+    private DenseTensor<float> CopyCondSlice(DenseTensor<float> condTensor, int sliceIndex, int condKpCount, int condChannels)
+    {
+        var slicedCondTensor = new DenseTensor<float>(new[] { 1, 1, condKpCount, condChannels });
+        for (int k = 0; k < condKpCount; k++)
         {
-            IsLoading = false;
-            StateHasChanged();
+            for (int c = 0; c < condChannels; c++)
+            {
+                slicedCondTensor[0, 0, k, c] = condTensor[0, sliceIndex, k, c];
+            }
         }
+
+        return slicedCondTensor;
+    }
+
+    private (int left, int top, int right, int bottom) ComputeBoundingBoxFromCond(DenseTensor<float> slicedCondTensor, int imageWidth, int imageHeight)
+    {
+        int condKpCount = slicedCondTensor.Dimensions[2];
+        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+
+        for (int k = 0; k < condKpCount; k++)
+        {
+            var px = slicedCondTensor[0, 0, k, 0];
+            var py = slicedCondTensor[0, 0, k, 1];
+
+            if (px < minX) minX = px;
+            if (py < minY) minY = py;
+            if (px > maxX) maxX = px;
+            if (py > maxY) maxY = py;
+        }
+
+        var bboxW = MathF.Max(1, maxX - minX);
+        var bboxH = MathF.Max(1, maxY - minY);
+        var pad = MathF.Max(bboxW, bboxH) * 0.2f;
+
+        var leftF = MathF.Max(0, minX - pad);
+        var topF = MathF.Max(0, minY - pad);
+        var rightF = MathF.Min(imageWidth, maxX + pad);
+        var bottomF = MathF.Min(imageHeight, maxY + pad);
+
+        var left = (int)MathF.Floor(leftF);
+        var top = (int)MathF.Floor(topF);
+        var right = (int)MathF.Ceiling(rightF);
+        var bottom = (int)MathF.Ceiling(bottomF);
+
+        return (left, top, right, bottom);
+    }
+
+    private DenseTensor<float> AdjustCondCoordinates(DenseTensor<float> slicedCondTensor, int left, int top, int cropW, int cropH, int condKpCount)
+    {
+        var adjustedCond = new DenseTensor<float>(new[] { 1, 1, condKpCount, 3 });
+        float scaleX = (float)TargetSize / cropW;
+        float scaleY = (float)TargetSize / cropH;
+
+        for (int k = 0; k < condKpCount; k++)
+        {
+            var origX = slicedCondTensor[0, 0, k, 0];
+            var origY = slicedCondTensor[0, 0, k, 1];
+            var origP = slicedCondTensor[0, 0, k, 2];
+
+            var localX = (origX - left) * scaleX;
+            var localY = (origY - top) * scaleY;
+
+            localX = MathF.Max(0, MathF.Min(TargetSize, localX));
+            localY = MathF.Max(0, MathF.Min(TargetSize, localY));
+
+            adjustedCond[0, 0, k, 0] = localX;
+            adjustedCond[0, 0, k, 1] = localY;
+            adjustedCond[0, 0, k, 2] = origP;
+        }
+
+        return adjustedCond;
     }
 
     // Adds keypoint to DrawKeypoints if probability > 0.2.
-    // Handles both normalized [0,1] and absolute pixel coordinates.
-    private void AddKeypointIfVisible(float xPix, float yPix, float prob, int imageWidth, int imageHeight, int keypointNr)
+    private void AddKeypointIfVisible(float xPix, float yPix, float prob, int imageWidth, int imageHeight, int keypointNr, int individualId)
     {
         if (prob <= 0.2f) return;
 
@@ -356,11 +497,13 @@
         xPix = MathF.Max(0, MathF.Min(imageWidth, xPix));
         yPix = MathF.Max(0, MathF.Min(imageHeight, yPix));
 
-        DrawKeypoints.Add(new Keypoint(((int)xPix), ((int)yPix), prob, keypointNr));
+        DrawKeypoints.Add(new Keypoint(((int)xPix), ((int)yPix), prob, keypointNr, individualId));
     }
 
-    private static void FillCondTensorRandom(DenseTensor<float> condTensor, int imageWidth, int imageHeight, int kpCount)
+    private static DenseTensor<float> CreateRandomCondTensor(int imageWidth, int imageHeight, int kpCount)
     {
+        var condTensor = new DenseTensor<float>(new[] { 1, 1, kpCount, 3 });
+
         var rnd = Random.Shared;
         for (var i = 0; i < kpCount; i++)
         {
@@ -372,5 +515,7 @@
             condTensor[0, 0, i, 1] = yNorm;
             condTensor[0, 0, i, 2] = prob;
         }
+
+        return condTensor;
     }
 }
